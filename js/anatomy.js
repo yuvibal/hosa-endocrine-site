@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SOURCES, classify, GLB_PARTS, RULES } from "../tools/classify.js";
 import { prettyLabel } from "./hover-info.js";
@@ -57,9 +56,28 @@ function loadGltf(url, draco) {
   return new GLTFLoader().setDRACOLoader(draco).loadAsync(url);
 }
 
-function loadFbx(url, onProgress) {
+async function loadFbx(url, onProgress) {
+  const { FBXLoader } = await import("three/addons/loaders/FBXLoader.js");
   return new Promise((resolve, reject) => {
     new FBXLoader().load(url, resolve, onProgress, reject);
+  });
+}
+
+function yieldFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+function decodeDracoMesh(draco, bytes) {
+  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  if (typeof draco.decodeGeometry === "function") {
+    return draco.decodeGeometry(copy, {
+      attributeIDs: { position: "POSITION", normal: "NORMAL" },
+      attributeTypes: { position: "Float32Array", normal: "Float32Array" },
+      useUniqueIDs: false,
+    });
+  }
+  return new Promise((resolve, reject) => {
+    draco.decodeDracoFile(copy, resolve, undefined, undefined, undefined, reject);
   });
 }
 
@@ -89,15 +107,74 @@ function mergeBucket(geos) {
   return merged;
 }
 
-export async function loadAnatomy({ onProgress = () => {} } = {}) {
+function centerGroup(group) {
+  const box = new THREE.Box3().setFromObject(group);
+  const centre = box.getCenter(new THREE.Vector3());
+  const height = box.max.y - box.min.y;
+  group.position.set(-centre.x, -centre.y, -centre.z);
+  return { height, ms: 0 };
+}
+
+function snapshot(group, parts, counts, t0, extra = {}) {
+  const box = new THREE.Box3().setFromObject(group);
+  return {
+    group,
+    parts,
+    stats: {
+      ...counts,
+      height: box.max.y - box.min.y,
+      ms: Math.round(performance.now() - t0),
+      ...extra,
+    },
+  };
+}
+
+async function ingestFbxSource(source, file, group, parts, counts, onProgress, start, span) {
+  onProgress(start, `Loading ${file.replace(/100\.fbx|\.fbx/g, "").replace(/([A-Z])/g, " $1").trim()}`);
+  const root = await loadFbx("assets/fbx/" + encodeURIComponent(file), (ev) => {
+    if (!ev.total) return;
+    onProgress(start + (ev.loaded / ev.total) * span * 0.7, `Loading ${file}`);
+  });
+  root.updateMatrixWorld(true);
+  const buckets = new Map();
+  root.traverse((o) => {
+    if (!o.isMesh || !o.visible || !o.geometry?.attributes?.position) return;
+    const rule = classify(source, o.name);
+    if (!rule) return;
+    const g = slim(o.geometry.clone());
+    g.applyMatrix4(o.matrixWorld);
+    g.scale(CM_TO_M, CM_TO_M, CM_TO_M);
+    if (!buckets.has(rule.id)) buckets.set(rule.id, { rule, geos: [] });
+    buckets.get(rule.id).geos.push(g);
+  });
+  root.traverse((o) => {
+    if (o.isMesh) o.geometry.dispose();
+  });
+
+  for (const { rule, geos } of buckets.values()) {
+    const merged = mergeBucket(geos);
+    if (!merged) continue;
+    register(group, parts, new THREE.Mesh(merged, makeMaterial(rule)), rule, geos.length);
+    counts.structures += geos.length;
+    if (rule.layer in counts) counts[rule.layer] += geos.length;
+    await yieldFrame();
+  }
+  onProgress(start + span, `Packed ${file}`);
+}
+
+export async function loadAnatomy({ onProgress = () => {}, onCore = () => {}, onPart = () => {} } = {}) {
   const t0 = performance.now();
   const group = new THREE.Group();
   const parts = [];
   const counts = { bones: 0, muscles: 0, organs: 0, veins: 0, skin: 0, structures: 0 };
 
   const draco = new DRACOLoader().setDecoderPath("assets/draco/");
+  const packedPromise = Promise.all([
+    fetch("assets/anatomy.json").then((res) => (res.ok ? res.json() : null)).catch(() => null),
+    fetch("assets/anatomy.bin").then((res) => (res.ok ? res.arrayBuffer() : null)).catch(() => null),
+  ]);
 
-  onProgress(0.04, "Loading skeleton and muscles");
+  onProgress(0.08, "Loading skeleton");
   const glb = await loadGltf("assets/body.glb", draco);
   glb.scene.updateMatrixWorld(true);
 
@@ -105,6 +182,7 @@ export async function loadAnatomy({ onProgress = () => {} } = {}) {
     bone: makeMaterial(GLB_PARTS.bone),
     muscle: makeMaterial(GLB_PARTS.muscle),
   };
+  const pendingMuscles = [];
   glb.scene.traverse((o) => {
     if (!o.isMesh || !o.geometry) return;
     const type = o.userData?.type;
@@ -112,71 +190,74 @@ export async function loadAnatomy({ onProgress = () => {} } = {}) {
     if (!def) return;
     const g = slim(o.geometry.clone());
     g.applyMatrix4(o.matrixWorld);
-    const mesh = new THREE.Mesh(g, glbMats[type]);
-    register(group, parts, mesh, { ...def, label: prettyLabel(o.name || def.label) }, 1);
-    counts.structures += 1;
-    counts[def.layer] += 1;
+    if (type === "bone") {
+      register(group, parts, new THREE.Mesh(g, glbMats.bone), { ...def, label: prettyLabel(o.name || def.label) }, 1);
+      counts.structures += 1;
+      counts.bones += 1;
+    } else {
+      pendingMuscles.push({ g, def, name: o.name });
+    }
   });
-  draco.dispose();
+  glb.scene.traverse((o) => {
+    if (o.isMesh) o.geometry.dispose();
+  });
 
-  const fbxEntries = Object.entries(SOURCES);
-  for (let i = 0; i < fbxEntries.length; i += 1) {
-    const [source, file] = fbxEntries[i];
-    const start = 0.18 + (i / fbxEntries.length) * 0.72;
-    onProgress(start, `Loading ${file.replace(/100\.fbx|\.fbx/g, "").replace(/([A-Z])/g, " $1").trim()}`);
+  centerGroup(group);
+  onProgress(0.22, "Skeleton ready");
+  onCore(snapshot(group, parts, counts, t0, { phase: "bones" }));
 
-    let root;
-    try {
-      root = await loadFbx("assets/fbx/" + encodeURIComponent(file), (ev) => {
-        if (!ev.total) return;
-        onProgress(start + (ev.loaded / ev.total) * (0.72 / fbxEntries.length) * 0.7, `Loading ${file}`);
-      });
-    } catch (err) {
-      console.warn("Skipped", file, err);
-      continue;
+  for (let i = 0; i < pendingMuscles.length; i += 1) {
+    const { g, def, name } = pendingMuscles[i];
+    register(group, parts, new THREE.Mesh(g, glbMats.muscle), { ...def, label: prettyLabel(name || def.label) }, 1);
+    counts.structures += 1;
+    counts.muscles += 1;
+    if (i % 48 === 47) await yieldFrame();
+  }
+  onPart();
+
+  let usedPacked = false;
+  try {
+    const [manifest, buffer] = await packedPromise;
+    if (manifest?.parts?.length && buffer) {
+      usedPacked = true;
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < manifest.parts.length; i += 1) {
+        const part = manifest.parts[i];
+        onProgress(0.28 + (i / manifest.parts.length) * 0.7, `Loading ${part.label}`);
+        try {
+          const slice = bytes.subarray(part.offset, part.offset + part.length);
+          const geometry = slim(await decodeDracoMesh(draco, slice));
+          register(group, parts, new THREE.Mesh(geometry, makeMaterial(part)), part, part.structures || 1);
+          counts.structures += part.structures || 1;
+          if (part.layer in counts) counts[part.layer] += part.structures || 1;
+          onPart();
+        } catch (err) {
+          console.warn("Skipped packed part", part.id, err);
+        }
+        await yieldFrame();
+      }
     }
-
-    root.updateMatrixWorld(true);
-    const buckets = new Map();
-    root.traverse((o) => {
-      if (!o.isMesh || !o.visible || !o.geometry?.attributes?.position) return;
-      const rule = classify(source, o.name);
-      if (!rule) return;
-      const g = slim(o.geometry.clone());
-      g.applyMatrix4(o.matrixWorld);
-      g.scale(CM_TO_M, CM_TO_M, CM_TO_M);
-      if (!buckets.has(rule.id)) buckets.set(rule.id, { rule, geos: [] });
-      buckets.get(rule.id).geos.push(g);
-    });
-    root.traverse((o) => {
-      if (o.isMesh) o.geometry.dispose();
-    });
-
-    for (const { rule, geos } of buckets.values()) {
-      const merged = mergeBucket(geos);
-      if (!merged) continue;
-      register(group, parts, new THREE.Mesh(merged, makeMaterial(rule)), rule, geos.length);
-      counts.structures += geos.length;
-      if (rule.layer in counts) counts[rule.layer] += geos.length;
-    }
-    onProgress(start + 0.72 / fbxEntries.length, `Packed ${file}`);
+  } catch (err) {
+    console.warn("Packed anatomy unavailable, using FBX", err);
   }
 
-  const box = new THREE.Box3().setFromObject(group);
-  const centre = box.getCenter(new THREE.Vector3());
-  const height = box.max.y - box.min.y;
-  group.position.set(-centre.x, -centre.y, -centre.z);
+  if (!usedPacked) {
+    const fbxEntries = Object.entries(SOURCES);
+    for (let i = 0; i < fbxEntries.length; i += 1) {
+      const [source, file] = fbxEntries[i];
+      const start = 0.28 + (i / fbxEntries.length) * 0.7;
+      try {
+        await ingestFbxSource(source, file, group, parts, counts, onProgress, start, 0.7 / fbxEntries.length);
+        onPart();
+      } catch (err) {
+        console.warn("Skipped", file, err);
+      }
+    }
+  }
 
+  draco.dispose();
   onProgress(1, "Ready");
-  return {
-    group,
-    parts,
-    stats: {
-      ...counts,
-      height,
-      ms: Math.round(performance.now() - t0),
-    },
-  };
+  return snapshot(group, parts, counts, t0, { phase: "full", packed: usedPacked });
 }
 
 export function catalogAllParts(parts) {
@@ -251,7 +332,8 @@ export function applyState(parts, layers, systemId, layerOpacity = {}, partId = 
         : !ACCESSORY_IDS.has(id)
       : highlighted;
     const hideExtras = essentialOnly && !!(systemId || partId) && !necessary;
-    mesh.visible = !!layers[layer] && !hideExtras;
+    const inActiveSystem = !!(systemId && systems.includes(systemId));
+    mesh.visible = (inActiveSystem || !!layers[layer]) && !hideExtras;
     if (!mesh.visible) return;
 
     const mat = mesh.material;

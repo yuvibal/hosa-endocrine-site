@@ -217,11 +217,50 @@ function renderPartList() {
   partList.appendChild(frag);
 }
 
+const partSearchWrap = document.getElementById("partSearchWrap");
+const partSearchArrow = document.getElementById("partSearchArrow");
+const dock = document.getElementById("dock");
+const dockToggle = document.getElementById("dockToggle");
+
+function setFinderOpen(open) {
+  partSearchWrap.classList.toggle("open", open);
+  partSearchArrow.setAttribute("aria-expanded", String(open));
+}
+
+partSearchArrow.addEventListener("click", (e) => {
+  e.preventDefault();
+  setFinderOpen(!partSearchWrap.classList.contains("open"));
+});
+
+partSearch.addEventListener("focus", () => setFinderOpen(true));
 partSearch.addEventListener("input", () => {
   partQuery = partSearch.value;
   renderPartList();
+  setFinderOpen(true);
 });
 renderPartList();
+
+function setDockOpen(open) {
+  dock.classList.toggle("open", open);
+  dockToggle.setAttribute("aria-expanded", String(open));
+  dockToggle.setAttribute("aria-label", open ? "Hide view menu" : "Show view menu");
+}
+
+dockToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setDockOpen(!dock.classList.contains("open"));
+});
+
+canvas.addEventListener("pointerdown", () => {
+  if (!dock.classList.contains("open")) return;
+  setDockOpen(false);
+});
+
+document.addEventListener("pointerdown", (e) => {
+  if (!partSearchWrap.classList.contains("open")) return;
+  if (e.target.closest(".part-finder")) return;
+  setFinderOpen(false);
+});
 
 document.querySelector(".app").addEventListener(
   "pointerdown",
@@ -229,7 +268,7 @@ document.querySelector(".app").addEventListener(
     if (!soloLabel) return;
     if (e.target.closest(".part-finder")) return;
     if (e.target.closest("#scene")) return;
-    if (e.target.closest(".rotate-bar")) return;
+    if (e.target.closest(".dock")) return;
     if (e.target.closest("#restartBtn")) return;
     clearSolo();
   },
@@ -603,7 +642,7 @@ function runInspect(event) {
   for (const hit of hits) {
     if (!isShown(hit.object)) continue;
     const next = partDataFromHit(hit.object);
-    if (next?.label && layers[next.layer]) {
+    if (next?.label) {
       data = next;
       break;
     }
@@ -752,13 +791,14 @@ function tickLoader(now) {
 }
 requestAnimationFrame(tickLoader);
 
-loadAnatomy({ onProgress })
-  .then((built) => {
+let ticking = false;
+let coreReady = false;
+
+function adoptAnatomy(built, { first = false } = {}) {
+  if (first) {
     body = built.group;
     parts = built.parts;
     scene.add(body);
-    refreshAnatomy();
-
     const h = built.stats.height || 1.74;
     bodyHeight = h;
     camera.position.set(0.2, 0.08, Math.max(2.6, h * 1.85));
@@ -768,12 +808,39 @@ loadAnatomy({ onProgress })
     ground.position.y = -h / 2 - 0.01;
     lockUprightSpin();
     rememberHome();
+    coreReady = true;
+    finishLoader();
+    if (!ticking) {
+      ticking = true;
+      tick();
+    }
+  }
+  refreshAnatomy();
+  partCatalog = catalogAllParts(parts);
+  renderPartList();
+}
 
+loadAnatomy({
+  onProgress,
+  onCore: (built) => {
+    adoptAnatomy(built, { first: true });
+    console.info(`Z-Anatomy skeleton ready in ${built.stats.ms} ms`, built.stats);
+  },
+  onPart: () => {
+    if (!coreReady) return;
+    refreshAnatomy();
     partCatalog = catalogAllParts(parts);
     renderPartList();
+  },
+})
+  .then((built) => {
+    if (!coreReady) adoptAnatomy(built, { first: true });
+    else {
+      refreshAnatomy();
+      partCatalog = catalogAllParts(parts);
+      renderPartList();
+    }
     console.info(`Z-Anatomy loaded in ${built.stats.ms} ms`, built.stats);
-    finishLoader();
-    tick();
   })
   .catch((err) => {
     console.error(err);

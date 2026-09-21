@@ -1,8 +1,14 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
 import { LAYERS, SYSTEMS, loadAnatomy, applyState, catalogForSystem, catalogAllParts } from "./anatomy.js";
 import { describeHover } from "./hover-info.js";
+
+/* ZOOM_PERF: undo this import + the zoom-perf block below to revert. */
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const canvas = document.getElementById("scene");
 const stage = canvas.parentElement;
@@ -65,12 +71,16 @@ const camera = new THREE.PerspectiveCamera(32, 1, 0.02, 60);
 camera.position.set(0.18, 0.1, 3.95);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const BASE_PR = Math.min(window.devicePixelRatio || 1, 2);
+const INTERACT_PR = 1;
+renderer.setPixelRatio(BASE_PR);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 const wantShadows = window.innerWidth > 820;
 renderer.shadowMap.enabled = wantShadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+let interactLite = false;
+let interactUntil = 0;
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -88,10 +98,21 @@ controls.target.set(0, -0.01, 0);
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 raycaster.firstHitOnly = true;
+const zoomRaycaster = new THREE.Raycaster();
+zoomRaycaster.layers.set(1);
+const zoomProxy = new THREE.Mesh(
+  new THREE.CapsuleGeometry(0.32, 1.2, 3, 8),
+  new THREE.MeshBasicMaterial({ visible: false }),
+);
+zoomProxy.name = "zoomProxy";
+zoomProxy.layers.set(1);
+zoomProxy.frustumCulled = false;
 const zoomFocus = new THREE.Vector3();
 const zoomOffset = new THREE.Vector3();
 const viewDir = new THREE.Vector3();
 const hitPlane = new THREE.Plane();
+const proxySize = new THREE.Vector3();
+const proxyCenter = new THREE.Vector3();
 const homeTarget = new THREE.Vector3();
 const homeOffset = new THREE.Vector3();
 const desiredCam = new THREE.Vector3();
@@ -482,20 +503,58 @@ function rememberHome() {
   desiredTarget.copy(controls.target);
 }
 
+function rebuildZoomProxy() {
+  if (!body) return;
+  const box = new THREE.Box3().setFromObject(body);
+  box.getSize(proxySize);
+  box.getCenter(proxyCenter);
+  const radius = Math.max(0.18, Math.max(proxySize.x, proxySize.z) * 0.42);
+  const shaft = Math.max(0.2, proxySize.y - radius * 2);
+  zoomProxy.geometry.dispose();
+  zoomProxy.geometry = new THREE.CapsuleGeometry(radius, shaft, 3, 8);
+  zoomProxy.position.copy(proxyCenter);
+  if (!zoomProxy.parent) scene.add(zoomProxy);
+}
+
+function armPartBvh(mesh) {
+  if (!mesh?.isMesh || !mesh.geometry || mesh.geometry.boundsTree) return;
+  try {
+    mesh.geometry.computeBoundsTree({ maxLeafTris: 16 });
+  } catch (_) {
+    /* keep default raycast if a mesh cannot build a tree */
+  }
+}
+
+function armNewParts() {
+  for (const mesh of parts) armPartBvh(mesh);
+}
+
+function setLiteRender(on) {
+  if (on === interactLite) return;
+  interactLite = on;
+  renderer.setPixelRatio(on ? INTERACT_PR : BASE_PR);
+  renderer.shadowMap.enabled = !on && wantShadows;
+  key.castShadow = !on && wantShadows;
+  renderer.setSize(stage.clientWidth, stage.clientHeight, false);
+}
+
+function markInteract() {
+  interactUntil = performance.now() + 220;
+  setLiteRender(true);
+}
+
 function pointUnderCursor(event) {
   const rect = canvas.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
+  zoomRaycaster.setFromCamera(pointer, camera);
 
-  if (body) {
-    const hits = raycaster.intersectObject(body, true);
-    if (hits.length) return hits[0].point;
-  }
+  const hits = zoomRaycaster.intersectObject(zoomProxy, false);
+  if (hits.length) return hits[0].point;
 
   camera.getWorldDirection(viewDir);
   hitPlane.setFromNormalAndCoplanarPoint(viewDir, controls.target);
-  if (raycaster.ray.intersectPlane(hitPlane, zoomFocus)) return zoomFocus;
+  if (zoomRaycaster.ray.intersectPlane(hitPlane, zoomFocus)) return zoomFocus;
   return controls.target;
 }
 
@@ -530,22 +589,34 @@ function clampTargetY(cam, target, dist) {
   target.y += applied;
 }
 
-function zoomToward(event) {
-  event.preventDefault();
-  if (!body) return;
+const zoomHit = new THREE.Vector3();
+let zoomHitValid = false;
+let zoomGestureUntil = 0;
+let zoomRaf = 0;
+let pendingWheel = 0;
+let pendingWheelX = 0;
+let pendingWheelY = 0;
 
+function applyZoomDelta(deltaY, clientX, clientY) {
   desiredCam.copy(camera.position);
   desiredTarget.copy(controls.target);
 
-  const goingOut = event.deltaY > 0;
-  const step = Math.min(Math.abs(event.deltaY), 90);
+  const goingOut = deltaY > 0;
+  const step = Math.min(Math.abs(deltaY), 90);
   const factor = Math.exp((goingOut ? 1 : -1) * step * 0.00105);
+  const now = performance.now();
 
   if (goingOut) {
     zoomFocus.copy(desiredTarget);
+    zoomHitValid = false;
+  } else if (zoomHitValid && now < zoomGestureUntil) {
+    zoomFocus.copy(zoomHit);
   } else {
-    zoomFocus.copy(pointUnderCursor(event));
+    zoomFocus.copy(pointUnderCursor({ clientX, clientY }));
+    zoomHit.copy(zoomFocus);
+    zoomHitValid = true;
   }
+  zoomGestureUntil = now + 160;
 
   desiredCam.sub(zoomFocus).multiplyScalar(factor).add(zoomFocus);
   desiredTarget.sub(zoomFocus).multiplyScalar(factor).add(zoomFocus);
@@ -572,6 +643,31 @@ function zoomToward(event) {
 
   clampTargetY(desiredCam, desiredTarget, dist);
   applyZoomPose();
+}
+
+function flushZoom() {
+  zoomRaf = 0;
+  let deltaY = pendingWheel;
+  const x = pendingWheelX;
+  const y = pendingWheelY;
+  pendingWheel = 0;
+  if (!deltaY || !body) return;
+  while (deltaY) {
+    const chunk = THREE.MathUtils.clamp(deltaY, -90, 90);
+    deltaY -= chunk;
+    applyZoomDelta(chunk, x, y);
+  }
+  if (pendingWheel) zoomRaf = requestAnimationFrame(flushZoom);
+}
+
+function zoomToward(event) {
+  event.preventDefault();
+  if (!body) return;
+  markInteract();
+  pendingWheel += THREE.MathUtils.clamp(event.deltaY, -90, 90);
+  pendingWheelX = event.clientX;
+  pendingWheelY = event.clientY;
+  if (!zoomRaf) zoomRaf = requestAnimationFrame(flushZoom);
 }
 
 canvas.addEventListener("wheel", zoomToward, { passive: false });
@@ -730,6 +826,7 @@ function restartView() {
 restartBtn.addEventListener("click", restartView);
 
 function tick() {
+  if (interactLite && performance.now() > interactUntil) setLiteRender(false);
   controls.update();
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
@@ -808,6 +905,7 @@ function adoptAnatomy(built, { first = false } = {}) {
     ground.position.y = -h / 2 - 0.01;
     lockUprightSpin();
     rememberHome();
+    rebuildZoomProxy();
     coreReady = true;
     finishLoader();
     if (!ticking) {
@@ -815,6 +913,8 @@ function adoptAnatomy(built, { first = false } = {}) {
       tick();
     }
   }
+  armNewParts();
+  rebuildZoomProxy();
   refreshAnatomy();
   partCatalog = catalogAllParts(parts);
   renderPartList();
@@ -828,6 +928,7 @@ loadAnatomy({
   },
   onPart: () => {
     if (!coreReady) return;
+    armNewParts();
     refreshAnatomy();
     partCatalog = catalogAllParts(parts);
     renderPartList();
@@ -836,6 +937,8 @@ loadAnatomy({
   .then((built) => {
     if (!coreReady) adoptAnatomy(built, { first: true });
     else {
+      armNewParts();
+      rebuildZoomProxy();
       refreshAnatomy();
       partCatalog = catalogAllParts(parts);
       renderPartList();

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>HOSA PRACTICE · Yuvraj's Anatomy Explorer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-kicker">HOSA PRACTICE</span>
+          <h1>Yuvraj's Anatomy Explorer</h1>
+        </div>
+        <div class="top-actions">
+          <button class="theme-toggle" id="restartBtn" type="button" aria-label="Restart view">
+            <svg class="restart-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 6V3L8 7l4 4V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-6Z"
+              />
+            </svg>
+          </button>
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle dark mode">
+            <svg class="moon-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 14.3A8.4 8.4 0 0 1 9.7 3a8.5 8.5 0 1 0 11.3 11.3Z" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <aside class="panel panel-layers" aria-label="Body layers">
+        <h2>Layers</h2>
+        <p class="panel-hint">Each layer switches on and off separately.</p>
+        <div class="toggles" id="layerToggles"></div>
+        <div class="part-finder">
+          <label class="part-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"
+              />
+            </svg>
+            <input id="partSearch" type="search" placeholder="Search for a part:" autocomplete="off" />
+          </label>
+          <div class="part-list" id="partList" role="listbox" aria-label="Body parts"></div>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <canvas id="scene" role="img" aria-label="Interactive 3D human body"></canvas>
+        <article class="hover-card" id="hoverCard" aria-hidden="true">
+          <h2 class="hover-card-title" id="hoverCardTitle"></h2>
+          <p class="hover-card-body" id="hoverCardBody"></p>
+        </article>
+        <div class="rotate-bar">
+          <button type="button" id="rotateCCW" aria-label="Rotate 360 degrees counterclockwise">
+            <span aria-hidden="true">↺</span> Counterclockwise
+          </button>
+          <button type="button" id="rotateCW" aria-label="Rotate 360 degrees clockwise">
+            Clockwise <span aria-hidden="true">↻</span>
+          </button>
+        </div>
+        <p class="credit">Yuvraj Bal 2026</p>
+        <p class="attribution">
+          Anatomy: <a href="https://github.com/LluisV/Z-Anatomy" target="_blank" rel="noreferrer">Z-Anatomy</a> / BodyParts3D · CC BY-SA 4.0
+        </p>
+        <div class="loader" id="loader">
+          <div class="spinner" id="loaderSpin" aria-hidden="true"></div>
+          <p id="loaderText">Loading anatomy…</p>
+          <div class="loader-bar" aria-hidden="true"><span id="loaderBar"></span></div>
+        </div>
+      </main>
+
+      <aside class="panel panel-systems" aria-label="Body systems">
+        <h2>Systems</h2>
+        <p class="panel-hint">Highlight one system — everything else grays out.</p>
+        <div class="systems" id="systemButtons"></div>
+        <div class="switch-row system-btn essential-row">
+          <span>Hover details</span>
+          <button type="button" class="switch" id="hoverToggle" aria-pressed="false" aria-label="Show hover details"></button>
+        </div>
+        <div class="switch-row system-btn essential-row">
+          <span>Essentials only</span>
+          <button type="button" class="switch" id="essentialToggle" aria-pressed="false" aria-label="Show essentials only"></button>
+        </div>
+        <button type="button" class="clear-btn" id="clearHighlight">Clear highlight</button>
+      </aside>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

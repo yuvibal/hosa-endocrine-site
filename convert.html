@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>FBX inspector / converter</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      body { font: 13px/1.5 ui-monospace, monospace; padding: 16px; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">idle</pre>
+    <script type="module">
+      import * as THREE from "three";
+      import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+      import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+      import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+
+      const out = document.getElementById("out");
+      const log = (s) => {
+        out.textContent += "\n" + s;
+        console.log(s);
+      };
+      window.__log = log;
+
+      window.inspectFbx = (file) =>
+        new Promise((resolve, reject) => {
+          out.textContent = "loading " + file + " …";
+          const t0 = performance.now();
+          new FBXLoader().load(
+            "./assets/fbx/" + encodeURIComponent(file),
+            (obj) => {
+              const meshes = [];
+              obj.traverse((o) => {
+                if (o.isMesh && o.geometry && o.geometry.attributes.position) meshes.push(o);
+              });
+              let tris = 0;
+              meshes.forEach((m) => {
+                const g = m.geometry;
+                tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+              });
+              const box = new THREE.Box3().setFromObject(obj);
+              const info = {
+                file,
+                loadMs: Math.round(performance.now() - t0),
+                meshCount: meshes.length,
+                triangles: Math.round(tris),
+                bbox: {
+                  min: box.min.toArray().map((v) => +v.toFixed(2)),
+                  max: box.max.toArray().map((v) => +v.toFixed(2)),
+                },
+                names: meshes.map((m) => m.name),
+                materials: [...new Set(meshes.map((m) => (m.material.length ? m.material.map((x) => x.name).join("|") : m.material.name)))],
+              };
+              window.__obj = obj;
+              window.__meshes = meshes;
+              window.__info = info;
+              out.textContent = JSON.stringify({ ...info, names: info.names.slice(0, 60) }, null, 2);
+              resolve(info);
+            },
+            undefined,
+            (e) => {
+              out.textContent = "ERROR " + file + ": " + e;
+              reject(e);
+            }
+          );
+        });
+
+      window.download = (name, text) => {
+        const blob = new Blob([text], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+      };
+
+      // Load an FBX and save a JSON manifest of every visible mesh (name + triangle count).
+      window.dumpNames = async (file) => {
+        await window.inspectFbx(file);
+        const tri = (m) => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+        const rows = window.__meshes
+          .filter((m) => m.visible && !/j$/.test(m.name))
+          .map((m) => [m.name, Math.round(tri(m))]);
+        window.download(file.replace(/[^A-Za-z0-9]+/g, "_") + ".names.json", JSON.stringify(rows, null, 0));
+        return rows.length;
+      };
+
+      // Merge loaded meshes into buckets and export one compact GLB.
+      // buckets: { bucketName: (name) => bool }  evaluated in order
+      window.exportBuckets = async (outName, rules, opts = {}) => {
+        const meshes = window.__meshes;
+        const scale = opts.scale ?? 1;
+        const buckets = new Map();
+        const unmatched = [];
+        meshes.forEach((m) => {
+          const rule = rules.find((r) => r.test.test(m.name));
+          const key = rule ? rule.bucket : null;
+          if (!key) {
+            unmatched.push(m.name);
+            return;
+          }
+          const g = m.geometry.clone();
+          g.applyMatrix4(m.matrixWorld);
+          for (const attr of Object.keys(g.attributes)) {
+            if (attr !== "position" && attr !== "normal") g.deleteAttribute(attr);
+          }
+          if (!g.attributes.normal) g.computeVertexNormals();
+          if (!g.index) {
+            const n = g.attributes.position.count;
+            g.setIndex([...Array(n).keys()]);
+          }
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(g);
+        });
+
+        const root = new THREE.Group();
+        const summary = [];
+        for (const [key, geos] of buckets) {
+          const merged = mergeGeometries(geos, false);
+          if (!merged) {
+            log("merge failed for " + key);
+            continue;
+          }
+          if (scale !== 1) merged.scale(scale, scale, scale);
+          merged.computeBoundingBox();
+          const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ name: key }));
+          mesh.name = key;
+          root.add(mesh);
+          summary.push([key, geos.length, Math.round(merged.index.count / 3)]);
+        }
+        log("buckets: " + JSON.stringify(summary));
+        log("unmatched (" + unmatched.length + "): " + JSON.stringify(unmatched.slice(0, 40)));
+
+        const glb = await new Promise((res, rej) =>
+          new GLTFExporter().parse(root, res, rej, { binary: true, onlyVisible: false })
+        );
+        const blob = new Blob([glb], { type: "model/gltf-binary" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = outName;
+        a.click();
+        log("exported " + outName + " — " + (blob.size / 1e6).toFixed(2) + " MB");
+        return blob.size;
+      };
+    </script>
+  </body>
+</html>

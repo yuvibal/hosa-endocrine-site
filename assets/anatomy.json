@@ -1,0 +1,486 @@
+{
+  "generated": "2026-09-21T01:24:46.166Z",
+  "source": "Z-Anatomy (CC BY-SA 4.0), derived from BodyParts3D",
+  "units": "meters",
+  "bounds": {
+    "min": [
+      -0.34005919098854065,
+      -0.0010000000474974513,
+      -0.14834405481815338
+    ],
+    "max": [
+      0.3400592803955078,
+      1.7433401346206665,
+      0.14564737677574158
+    ]
+  },
+  "totalBytes": 8741170,
+  "parts": [
+    {
+      "id": "skin",
+      "label": "Skin",
+      "layer": "skin",
+      "systems": [
+        "integumentary"
+      ],
+      "color": 14264193,
+      "opacity": 1,
+      "structures": 238,
+      "triangles": 98134,
+      "offset": 0,
+      "length": 249697
+    },
+    {
+      "id": "nails",
+      "label": "Nails",
+      "layer": "skin",
+      "systems": [
+        "integumentary"
+      ],
+      "color": 15322043,
+      "opacity": 1,
+      "structures": 8,
+      "triangles": 13544,
+      "offset": 249697,
+      "length": 27179
+    },
+    {
+      "id": "hair",
+      "label": "Hair",
+      "layer": "skin",
+      "systems": [
+        "integumentary"
+      ],
+      "color": 2826524,
+      "opacity": 1,
+      "structures": 5,
+      "triangles": 19348,
+      "offset": 276876,
+      "length": 54122
+    },
+    {
+      "id": "pleura",
+      "label": "Pleura",
+      "layer": "organs",
+      "systems": [
+        "respiratory"
+      ],
+      "color": 14474450,
+      "opacity": 0.35,
+      "structures": 1,
+      "triangles": 112288,
+      "offset": 330998,
+      "length": 246999
+    },
+    {
+      "id": "pharynx",
+      "label": "Pharynx",
+      "layer": "organs",
+      "systems": [
+        "respiratory",
+        "digestive"
+      ],
+      "color": 13209466,
+      "opacity": 1,
+      "structures": 3,
+      "triangles": 6972,
+      "offset": 577997,
+      "length": 17563
+    },
+    {
+      "id": "liver",
+      "label": "Liver",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 9194042,
+      "opacity": 1,
+      "structures": 9,
+      "triangles": 39248,
+      "offset": 595560,
+      "length": 91440
+    },
+    {
+      "id": "biliary",
+      "label": "Gallbladder & bile ducts",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 8232518,
+      "opacity": 1,
+      "structures": 2,
+      "triangles": 2738,
+      "offset": 687000,
+      "length": 6333
+    },
+    {
+      "id": "pancreas",
+      "label": "Pancreas",
+      "layer": "organs",
+      "systems": [
+        "digestive",
+        "endocrine"
+      ],
+      "color": 14267512,
+      "opacity": 1,
+      "structures": 3,
+      "triangles": 71582,
+      "offset": 693333,
+      "length": 138576
+    },
+    {
+      "id": "mouth",
+      "label": "Mouth, tongue & salivary glands",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 12875372,
+      "opacity": 1,
+      "structures": 16,
+      "triangles": 40416,
+      "offset": 831909,
+      "length": 100461
+    },
+    {
+      "id": "intestines",
+      "label": "Intestines",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 13998706,
+      "opacity": 1,
+      "structures": 12,
+      "triangles": 127473,
+      "offset": 932370,
+      "length": 270266
+    },
+    {
+      "id": "stomach",
+      "label": "Stomach",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 13208168,
+      "opacity": 1,
+      "structures": 2,
+      "triangles": 9468,
+      "offset": 1202636,
+      "length": 26000
+    },
+    {
+      "id": "oesophagus",
+      "label": "Oesophagus",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 13209466,
+      "opacity": 1,
+      "structures": 2,
+      "triangles": 16320,
+      "offset": 1228636,
+      "length": 25818
+    },
+    {
+      "id": "peritoneum",
+      "label": "Peritoneum & omentum",
+      "layer": "organs",
+      "systems": [
+        "digestive"
+      ],
+      "color": 14733224,
+      "opacity": 0.45,
+      "structures": 2,
+      "triangles": 82728,
+      "offset": 1254454,
+      "length": 116610
+    },
+    {
+      "id": "kidneys",
+      "label": "Kidneys",
+      "layer": "organs",
+      "systems": [
+        "urinary",
+        "endocrine"
+      ],
+      "color": 10242623,
+      "opacity": 1,
+      "structures": 4,
+      "triangles": 8016,
+      "offset": 1371064,
+      "length": 22294
+    },
+    {
+      "id": "urinary-tract",
+      "label": "Ureters, bladder & urethra",
+      "layer": "organs",
+      "systems": [
+        "urinary"
+      ],
+      "color": 14075023,
+      "opacity": 1,
+      "structures": 4,
+      "triangles": 11964,
+      "offset": 1393358,
+      "length": 23510
+    },
+    {
+      "id": "thyroid",
+      "label": "Thyroid & parathyroid glands",
+      "layer": "organs",
+      "systems": [
+        "endocrine"
+      ],
+      "color": 11687498,
+      "opacity": 1,
+      "structures": 5,
+      "triangles": 3112,
+      "offset": 1416868,
+      "length": 8581
+    },
+    {
+      "id": "adrenal",
+      "label": "Adrenal glands",
+      "layer": "organs",
+      "systems": [
+        "endocrine"
+      ],
+      "color": 14270338,
+      "opacity": 1,
+      "structures": 2,
+      "triangles": 6290,
+      "offset": 1425449,
+      "length": 16263
+    },
+    {
+      "id": "pituitary",
+      "label": "Pituitary & pineal glands",
+      "layer": "organs",
+      "systems": [
+        "endocrine",
+        "nervous"
+      ],
+      "color": 12619688,
+      "opacity": 1,
+      "structures": 3,
+      "triangles": 1906,
+      "offset": 1441712,
+      "length": 5423
+    },
+    {
+      "id": "airway",
+      "label": "Trachea & bronchi",
+      "layer": "organs",
+      "systems": [
+        "respiratory"
+      ],
+      "color": 12833754,
+      "opacity": 1,
+      "structures": 11,
+      "triangles": 22836,
+      "offset": 1447135,
+      "length": 51717
+    },
+    {
+      "id": "lungs",
+      "label": "Lungs",
+      "layer": "organs",
+      "systems": [
+        "respiratory"
+      ],
+      "color": 13667211,
+      "opacity": 1,
+      "structures": 25,
+      "triangles": 120191,
+      "offset": 1498852,
+      "length": 236108
+    },
+    {
+      "id": "lymph-nodes",
+      "label": "Lymph nodes",
+      "layer": "organs",
+      "systems": [
+        "lymphatic"
+      ],
+      "color": 12177266,
+      "opacity": 1,
+      "structures": 159,
+      "triangles": 110544,
+      "offset": 1734960,
+      "length": 186841
+    },
+    {
+      "id": "lymph-organs",
+      "label": "Spleen, thymus & tonsils",
+      "layer": "organs",
+      "systems": [
+        "lymphatic"
+      ],
+      "color": 9325163,
+      "opacity": 1,
+      "structures": 5,
+      "triangles": 17306,
+      "offset": 1921801,
+      "length": 38753
+    },
+    {
+      "id": "arteries",
+      "label": "Arteries",
+      "layer": "veins",
+      "systems": [
+        "cardiovascular"
+      ],
+      "color": 12466735,
+      "opacity": 1,
+      "structures": 426,
+      "triangles": 839192,
+      "offset": 1960554,
+      "length": 1582077
+    },
+    {
+      "id": "heart",
+      "label": "Heart",
+      "layer": "organs",
+      "systems": [
+        "cardiovascular"
+      ],
+      "color": 10693930,
+      "opacity": 1,
+      "structures": 20,
+      "triangles": 74387,
+      "offset": 3542631,
+      "length": 198156
+    },
+    {
+      "id": "veins",
+      "label": "Veins",
+      "layer": "veins",
+      "systems": [
+        "cardiovascular"
+      ],
+      "color": 3364251,
+      "opacity": 1,
+      "structures": 228,
+      "triangles": 491813,
+      "offset": 3740787,
+      "length": 972902
+    },
+    {
+      "id": "meninges",
+      "label": "Meninges",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 14208964,
+      "opacity": 0.4,
+      "structures": 3,
+      "triangles": 23684,
+      "offset": 4713689,
+      "length": 52106
+    },
+    {
+      "id": "spinal-cord",
+      "label": "Spinal cord",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 14930854,
+      "opacity": 1,
+      "structures": 14,
+      "triangles": 154560,
+      "offset": 4765795,
+      "length": 265825
+    },
+    {
+      "id": "eyes",
+      "label": "Eyes",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 15855852,
+      "opacity": 1,
+      "structures": 27,
+      "triangles": 101046,
+      "offset": 5031620,
+      "length": 208673
+    },
+    {
+      "id": "brain",
+      "label": "Brain",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 14267050,
+      "opacity": 1,
+      "structures": 228,
+      "triangles": 685359,
+      "offset": 5240293,
+      "length": 1499358
+    },
+    {
+      "id": "cerebellum",
+      "label": "Cerebellum",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 13213851,
+      "opacity": 1,
+      "structures": 17,
+      "triangles": 70421,
+      "offset": 6739651,
+      "length": 123707
+    },
+    {
+      "id": "nerves",
+      "label": "Nerves & ganglia",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 15257458,
+      "opacity": 1,
+      "structures": 261,
+      "triangles": 1169926,
+      "offset": 6863358,
+      "length": 1637859
+    },
+    {
+      "id": "brainstem",
+      "label": "Brainstem",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 13608858,
+      "opacity": 1,
+      "structures": 13,
+      "triangles": 48910,
+      "offset": 8501217,
+      "length": 125491
+    },
+    {
+      "id": "ears",
+      "label": "Ears",
+      "layer": "organs",
+      "systems": [
+        "nervous"
+      ],
+      "color": 15129032,
+      "opacity": 1,
+      "structures": 24,
+      "triangles": 73736,
+      "offset": 8626708,
+      "length": 114462
+    }
+  ]
+}

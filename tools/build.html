@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Anatomy bundle builder</title>
+    <!-- DRACOExporter reads this global. -->
+    <script src="../assets/draco-enc/draco_encoder.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      body { font: 12px/1.6 ui-monospace, monospace; padding: 16px; background: #111; color: #ddd; }
+      pre { white-space: pre-wrap; }
+      button { font: inherit; padding: 6px 14px; margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <button id="go" type="button">Build bundle</button>
+    <pre id="out">ready</pre>
+    <script type="module">
+      import * as THREE from "three";
+      import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+      import { DRACOExporter } from "three/addons/exporters/DRACOExporter.js";
+      import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+      import { SOURCES, RULES, classify } from "./classify.js";
+
+      const CM_TO_M = 0.01;
+      const out = document.getElementById("out");
+      const log = (s) => {
+        out.textContent += s + "\n";
+        out.scrollTop = out.scrollHeight;
+        console.log(s);
+        return new Promise((r) => requestAnimationFrame(r));
+      };
+
+      const loadFbx = (file) =>
+        new Promise((res, rej) =>
+          new FBXLoader().load("../assets/fbx/" + encodeURIComponent(file), res, undefined, rej)
+        );
+
+      // The wasm encoder build resolves asynchronously, but DRACOExporter calls
+      // DracoEncoderModule() synchronously on every parse. Instantiate once and
+      // hand back the ready module.
+      async function initEncoder() {
+        const factory = window.DracoEncoderModule;
+        const mod = await factory();
+        window.DracoEncoderModule = () => mod;
+      }
+
+      async function build() {
+        out.textContent = "";
+        await initEncoder();
+        await log("draco encoder ready");
+        const buckets = new Map(); // part id -> { rule, geos: [] }
+        const dropped = { byRule: 0, names: [] };
+
+        for (const [source, file] of Object.entries(SOURCES)) {
+          const t0 = performance.now();
+          const root = await loadFbx(file);
+          root.updateMatrixWorld(true);
+          let kept = 0;
+          root.traverse((o) => {
+            if (!o.isMesh || !o.visible || !o.geometry || !o.geometry.attributes.position) return;
+            const rule = classify(source, o.name);
+            if (!rule) {
+              dropped.byRule += 1;
+              if (dropped.names.length < 400) dropped.names.push(source + "/" + o.name);
+              return;
+            }
+            const g = o.geometry.clone();
+            g.applyMatrix4(o.matrixWorld);
+            g.scale(CM_TO_M, CM_TO_M, CM_TO_M);
+            for (const attr of Object.keys(g.attributes)) {
+              if (attr !== "position" && attr !== "normal") g.deleteAttribute(attr);
+            }
+            if (!g.attributes.normal) g.computeVertexNormals();
+            g.morphAttributes = {};
+            if (!buckets.has(rule.id)) buckets.set(rule.id, { rule, geos: [] });
+            buckets.get(rule.id).geos.push(g);
+            kept += 1;
+          });
+          await log(
+            `${file}: kept ${kept} meshes in ${Math.round(performance.now() - t0)} ms`
+          );
+          // Free the FBX hierarchy before loading the next one.
+          root.traverse((o) => {
+            if (o.isMesh) o.geometry.dispose();
+          });
+        }
+
+        await log(`\ndropped ${dropped.byRule} meshes (label anchors, cross-sections, excluded)\n`);
+
+        const exporter = new DRACOExporter();
+        const chunks = [];
+        const parts = [];
+        let offset = 0;
+        const bounds = new THREE.Box3();
+
+        for (const [id, { rule, geos }] of buckets) {
+          const t0 = performance.now();
+          let merged = mergeGeometries(geos, false);
+          if (!merged) {
+            await log(`!! merge failed: ${id}`);
+            continue;
+          }
+          geos.forEach((g) => g.dispose());
+          const rawTris = merged.index
+            ? merged.index.count / 3
+            : merged.attributes.position.count / 3;
+          const rawVerts = merged.attributes.position.count;
+
+          // FBX geometry is unindexed; welding shrinks it and lets Draco's
+          // connectivity compression actually do its job.
+          let welded = merged;
+          try {
+            welded = mergeVertices(merged, 1e-5);
+            if (welded !== merged) merged.dispose();
+          } catch (e) {
+            await log(`   (weld failed for ${id}: ${e.message})`);
+          }
+          welded.computeBoundingBox();
+          bounds.union(welded.boundingBox);
+
+          const bytes = exporter.parse(new THREE.Mesh(welded), {
+            encodeSpeed: 5,
+            decodeSpeed: 5,
+            quantization: [14, 8, 8, 8, 8],
+            exportNormals: true,
+            exportUvs: false,
+          });
+          const buf = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+          chunks.push(buf);
+          parts.push({
+            id,
+            label: rule.label,
+            layer: rule.layer,
+            systems: rule.systems,
+            color: rule.color,
+            opacity: rule.opacity ?? 1,
+            structures: geos.length,
+            triangles: Math.round(rawTris),
+            offset,
+            length: buf.byteLength,
+          });
+          offset += buf.byteLength;
+          await log(
+            `${id.padEnd(16)} ${String(geos.length).padStart(4)} parts  ` +
+              `${String(Math.round(rawTris)).padStart(8)} tris  ` +
+              `verts ${rawVerts} -> ${welded.attributes.position.count}  ` +
+              `${(buf.byteLength / 1e6).toFixed(2)} MB  (${Math.round(performance.now() - t0)} ms)`
+          );
+          welded.dispose();
+        }
+
+        const manifest = {
+          generated: new Date().toISOString(),
+          source: "Z-Anatomy (CC BY-SA 4.0), derived from BodyParts3D",
+          units: "meters",
+          bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() },
+          totalBytes: offset,
+          parts,
+        };
+
+        const blob = new Blob(chunks, { type: "application/octet-stream" });
+        await log(
+          `\nbundle: ${(blob.size / 1e6).toFixed(2)} MB across ${parts.length} parts, ` +
+            `${parts.reduce((a, p) => a + p.triangles, 0).toLocaleString()} triangles`
+        );
+        await log(`bounds: ${JSON.stringify(manifest.bounds)}`);
+
+        const save = (name, data, type) => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([data], { type }));
+          a.download = name;
+          a.click();
+        };
+        save("anatomy.bin", blob, "application/octet-stream");
+        await new Promise((r) => setTimeout(r, 800));
+        save("anatomy.json", JSON.stringify(manifest, null, 2), "application/json");
+        await new Promise((r) => setTimeout(r, 400));
+        save("dropped.json", JSON.stringify(dropped.names, null, 0), "application/json");
+        await log("saved anatomy.bin + anatomy.json + dropped.json");
+      }
+
+      document.getElementById("go").addEventListener("click", () => {
+        build().catch((e) => log("ERROR: " + (e.stack || e)));
+      });
+    </script>
+  </body>
+</html>
